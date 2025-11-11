@@ -1,3 +1,5 @@
 DATASET: './dataset/MyStyle'
+DATASET_SMOOTH: './dataset/MyStyle/smooth'
+DATASET_SMOOTH_NOISE: './dataset/MyStyle/smooth_noise'
 DATA_TEMP: './dataset/seg_train_5-0.8-50'
 DATA_ANIME: './dataset/trainPhoto'
