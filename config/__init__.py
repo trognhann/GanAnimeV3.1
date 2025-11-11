@@ -8,4 +8,5 @@ with open('./config/config.yml', 'r') as f:
     config = yaml.safe_load(f)
 
 DATASET = config['DATASET']
-print("Loaded dataset config:", DATASET)
+DATA_TEMP = config['DATA_TEMP']
+DATA_ANIME = config['DATA_ANIME']
