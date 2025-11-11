@@ -1,0 +1,281 @@
+ 
+import pandas as pd
+import numpy as np
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.preprocessing import StandardScaler
+import torchvision.models as models
+from tqdm import tqdm
+
+
+
+NODULE_BLOCKS_PATH = '/kaggle/input/luna25-dataset/luna25_nodule_blocks/luna25_nodule_blocks/image'
+CSV_PATH = '/kaggle/input/luna25-dataset/14673658/LUNA25_Public_Training_Development_Data.csv'
+BATCH_SIZE = 16
+EPOCHS = 50
+LEARNING_RATE = 1e-4
+TEST_SIZE = 0.2
+RANDOM_STATE = 42
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Sử dụng thiết bị: {device}")
+
+
+def normalize_ct_scan(image_block):
+    MIN_BOUND = -1000.0
+    MAX_BOUND = 400.0
+    image_block = np.clip(image_block, MIN_BOUND, MAX_BOUND)
+    image_block = (image_block - MIN_BOUND) / (MAX_BOUND - MIN_BOUND)
+    return image_block.astype(np.float32)
+
+df = pd.read_csv(CSV_PATH)
+df['Gender'] = df['Gender'].map({'Male': 1.0, 'Female': 0.0}).astype(np.float32)
+
+
+
+print("Đang phân chia dữ liệu theo PatientID...")
+unique_patients = df['PatientID'].unique()
+train_patient_ids, val_patient_ids = train_test_split(
+    unique_patients, 
+    test_size=TEST_SIZE, 
+    random_state=RANDOM_STATE
+)
+
+train_df = df[df['PatientID'].isin(train_patient_ids)].reset_index(drop=True)
+val_df = df[df['PatientID'].isin(val_patient_ids)].reset_index(drop=True)
+
+print(f"Tổng số mẫu: {len(df)}")
+print(f"Số mẫu Huấn luyện (Train): {len(train_df)} (từ {len(train_patient_ids)} bệnh nhân)")
+print(f"Số mẫu Kiểm định (Val): {len(val_df)} (từ {len(val_patient_ids)} bệnh nhân)")
+
+age_scaler = StandardScaler()
+train_df['Age_at_StudyDate'] = age_scaler.fit_transform(train_df[['Age_at_StudyDate']])
+val_df['Age_at_StudyDate'] = age_scaler.transform(val_df[['Age_at_StudyDate']])
+print("Đã chuẩn hóa tuổi (fit trên tập train).")
+
+class NoduleDataset(Dataset):
+    def __init__(self, dataframe, npy_folder_path):
+        self.df = dataframe
+        self.npy_folder = npy_folder_path
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        
+        # 1. Dữ liệu Ảnh 3D
+        npy_filename = row['AnnotationID'] + ".npy"
+        img_path = os.path.join(self.npy_folder, npy_filename)
+        
+        # Tải khối 3D và chuẩn hóa
+        img_3d = np.load(img_path)
+        img_3d_normalized = normalize_ct_scan(img_3d)
+        
+        # Thêm kênh (channel)
+        img_tensor = torch.from_numpy(img_3d_normalized).float().unsqueeze(0) # (1, 64, 128, 128)
+
+        # 2. Dữ liệu Tabular (Tuổi & Giới tính)
+        tabular_data = [row['Age_at_StudyDate'], row['Gender']]
+        tabular_tensor = torch.tensor(tabular_data, dtype=torch.float)
+
+        # 3. Nhãn
+        label = torch.tensor(row['label'], dtype=torch.float)
+        
+        return img_tensor, tabular_tensor, label
+    
+train_dataset = NoduleDataset(train_df, NODULE_BLOCKS_PATH)
+val_dataset = NoduleDataset(val_df, NODULE_BLOCKS_PATH)
+
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
+
+neg_count = len(train_df[train_df['label'] == 0])
+pos_count = len(train_df[train_df['label'] == 1])
+pos_weight = torch.tensor(neg_count / pos_count).to(device)
+
+print(f"Tỷ lệ Lành tính/Ác tính (Train): {neg_count}/{pos_count}")
+print(f"Trọng số lớp Positive (pos_weight): {pos_weight.item():.2f}")
+
+criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+class TwoStreamModel(nn.Module):
+    def __init__(self, cnn_feature_dim=512, tab_output_dim=8):
+        super(TwoStreamModel, self).__init__()
+        
+        # --- Nhánh 1: 3D-ResNet (Xử lý Ảnh) ---
+        print("Đang tải 3D-ResNet-18 (r3d_18)...")
+        # Sử dụng ResNet-18 3D
+        self.cnn_3d_backbone = models.video.r3d_18(pretrained=False) # Tải mô hình
+        
+        # 1. Thay đổi lớp Conv1 đầu vào
+        # r3d_18 mặc định nhận 3 kênh (RGB), ta cần 1 kênh (CT)
+        original_conv1 = self.cnn_3d_backbone.stem[0]
+        self.cnn_3d_backbone.stem[0] = nn.Conv3d(
+            1,  # Chỉ 1 kênh đầu vào
+            original_conv1.out_channels,
+            kernel_size=original_conv1.kernel_size,
+            stride=original_conv1.stride,
+            padding=original_conv1.padding,
+            bias=False
+        )
+        
+        # 2. Thay đổi lớp FC cuối cùng
+        # Lấy số chiều đặc trưng trước khi thay thế
+        self.cnn_feature_dim = self.cnn_3d_backbone.fc.in_features
+        # Thay thế lớp FC bằng nn.Identity() để lấy đặc trưng
+        self.cnn_3d_backbone.fc = nn.Identity()
+        
+        # --- Nhánh 2: MLP (Xử lý Tuổi/Giới tính) ---
+        self.tabular_mlp = nn.Sequential(
+            nn.Linear(2, 16), # Input (Age, Gender)
+            nn.ReLU(),
+            nn.Linear(16, tab_output_dim) # Output 8-dim feature
+        )
+        
+        # --- Đầu phân loại (Kết hợp) ---
+        self.classification_head = nn.Sequential(
+            nn.Linear(self.cnn_feature_dim + tab_output_dim, 64), # 512 + 8
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(64, 1) # Output 1 logit duy nhất
+        )
+        print("Đã khởi tạo mô hình 3D-ResNet hai nhánh.")
+
+    def forward(self, x_img, x_tab):
+        # Nhánh 1
+        img_features = self.cnn_3d_backbone(x_img) # Kích thước [batch_size, 512]
+        
+        # Nhánh 2
+        tab_features = self.tabular_mlp(x_tab)     # Kích thước [batch_size, 8]
+        
+        # Kết hợp (Fusion)
+        combined_features = torch.cat((img_features, tab_features), dim=1)
+        
+        # Phân loại
+        output_logit = self.classification_head(combined_features)
+        return output_logit
+    
+model = TwoStreamModel().to(device)
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+
+best_val_auc = 0.0
+
+for epoch in range(EPOCHS):
+    print(f"\n--- Epoch {epoch+1}/{EPOCHS} ---")
+    
+    # --- Huấn luyện ---
+    model.train()
+    total_train_loss = 0.0
+    
+    # Sử dụng tqdm cho vòng lặp train
+    train_loop = tqdm(train_loader, desc="Training", leave=False)
+    for (images, tabular, labels) in train_loop:
+        images, tabular, labels = images.to(device), tabular.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        
+        # Đưa qua mô hình
+        logits = model(images, tabular)
+        
+        # Tính loss
+        loss = criterion(logits.squeeze(), labels)
+        
+        loss.backward()
+        optimizer.step()
+        
+        total_train_loss += loss.item()
+        train_loop.set_postfix(loss=loss.item())
+        
+    avg_train_loss = total_train_loss / len(train_loader)
+
+    # --- Đánh giá (Validation) ---
+    model.eval()
+    total_val_loss = 0.0
+    all_val_labels = []
+    all_val_preds = []
+    
+    val_loop = tqdm(val_loader, desc="Validation", leave=False)
+    with torch.no_grad():
+        for (images, tabular, labels) in val_loop:
+            images, tabular, labels = images.to(device), tabular.to(device), labels.to(device)
+            
+            logits = model(images, tabular)
+            
+            # Tính loss
+            loss = criterion(logits.squeeze(), labels)
+            total_val_loss += loss.item()
+            
+            # Chuyển logit thành xác suất (probability)
+            preds = torch.sigmoid(logits.squeeze())
+            
+            all_val_labels.extend(labels.cpu().numpy())
+            all_val_preds.extend(preds.cpu().numpy())
+            
+    avg_val_loss = total_val_loss / len(val_loader)
+    
+    # --- Tính toán Thước đo (AUC) ---
+    val_auc = roc_auc_score(all_val_labels, all_val_preds)
+    
+    print(f"Epoch {epoch+1}: Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Val AUC: {val_auc:.4f}")
+
+    # --- Lưu mô hình tốt nhất ---
+    if val_auc > best_val_auc:
+        best_val_auc = val_auc
+        torch.save(model.state_dict(), "/kaggle/working/luna25_3dresnet_best.pth")
+        print(f"*** Đã lưu mô hình mới! Val AUC tốt nhất: {best_val_auc:.4f} ***")
+
+
+print(f"\n--- Hoàn tất huấn luyện ---")
+print(f"Val AUC tốt nhất đạt được: {best_val_auc:.4f}")
+
+# --- Tải mô hình tốt nhất để đánh giá ---
+print("Đang tải mô hình tốt nhất để đánh giá...")
+model.load_state_dict(torch.load("/kaggle/working/luna25_3dresnet_best.pth"))
+model.eval()
+
+# --- Đánh giá cuối cùng trên tập Validation ---
+print("--- Báo cáo Phân loại trên tập Validation (dùng mô hình tốt nhất) ---")
+all_val_labels = []
+all_val_preds = []
+with torch.no_grad():
+    for (images, tabular, labels) in val_loader:
+        images, tabular, labels = images.to(device), tabular.to(device), labels.to(device)
+        logits = model(images, tabular)
+        preds = torch.sigmoid(logits.squeeze())
+        all_val_labels.extend(labels.cpu().numpy())
+        all_val_preds.extend(preds.cpu().numpy())
+
+y_true = np.array(all_val_labels)
+y_pred_proba = np.array(all_val_preds)
+y_pred_labels = (y_pred_proba > 0.5).astype(int) # Ngưỡng 0.5
+
+print(classification_report(y_true, y_pred_labels, target_names=['Lành tính (0)', 'Ác tính (1)']))
+final_auc = roc_auc_score(y_true, y_pred_proba)
+print(f"AUC cuối cùng trên tập Val: {final_auc:.4f}")
+
+print("--- Thử nghiệm Dự đoán (giữ nguyên) ---")
+# Lấy một mẫu thử nghiệm (sẽ có 3 phần)
+sample_image_tensor, sample_metadata_tensor, sample_label_tensor = val_dataset[0]
+true_label = sample_label_tensor.item()
+
+# Chuẩn bị batch (thêm chiều batch_size=1)
+sample_image_batch = sample_image_tensor.unsqueeze(0).to(device)     # (1, 1, 64, 128, 128)
+sample_metadata_batch = sample_metadata_tensor.unsqueeze(0).to(device) # (1, 2)
+
+model.eval()
+with torch.no_grad():
+    # === THAY ĐỔI MỚI ===
+    # Mô hình giờ nhận 2 đầu vào
+    test_logit = model(sample_image_batch, sample_metadata_batch)
+    test_prob = torch.sigmoid(test_logit.squeeze()).item()
+
+print(f"Nhãn thực tế: {true_label}")
+print(f"Xác suất dự đoán (Ác tính): {test_prob:.4f}")
