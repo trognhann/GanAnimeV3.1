@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 
 from .utils import check_folder
-from config import *
+import config as cfg
 
 
 def guass_init(kernel_size=5):
@@ -40,9 +40,9 @@ def make_edge_smooth(bgr_img, gray_img, img_size, kernel_size, kernel, gauss) :
 
 def main():
     kernel_size, kernel, gauss = guass_init()
-    style_dir = os.path.join(DATASET, 'style')
+    style_dir = os.path.join(cfg.DATASET, 'style')
     print(style_dir)
-    smooth_dir = os.path.join(DATASET, 'smooth')
+    smooth_dir = os.path.join(cfg.DATASET, 'smooth')
     check_folder(smooth_dir)
     file_list = sorted([f for f in glob.glob(os.path.join(style_dir, '*')) if os.path.isfile(f)])
     

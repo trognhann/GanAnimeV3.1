@@ -5,7 +5,7 @@ import cv2
 from tqdm import tqdm
 
 from .utils import check_folder
-from config import *
+import config as cfg
 
 opj = os.path.join
 
@@ -27,12 +27,12 @@ def sp_noise(img, prob=0.4):
 
 
 def main2():
-    check_folder(DATASET_SMOOTH_NOISE)
-    imgs = os.listdir(DATASET_SMOOTH)
+    check_folder(cfg.DATASET_SMOOTH_NOISE)
+    imgs = os.listdir(cfg.DATASET_SMOOTH)
     for x in tqdm(imgs):
-        img = cv2.imread(opj(DATASET_SMOOTH, x))
+        img = cv2.imread(opj(cfg.DATASET_SMOOTH, x))
         S = sp_noise(img, 0.1)
-        cv2.imwrite(opj(DATASET_SMOOTH_NOISE, x), S)
+        cv2.imwrite(opj(cfg.DATASET_SMOOTH_NOISE, x), S)
 
 if __name__ == "__main__":
     image_foder = '/media/ada/035ea81c-0b9a-4036-9c2a-a890e6fe0cee/ada/AnimeGANv3/dataset/Shinkai/smooth'

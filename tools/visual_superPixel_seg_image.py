@@ -5,7 +5,7 @@ from skimage import segmentation, color
 from tqdm import tqdm
 
 from .utils import check_folder
-from config import *
+import config as cfg
 
 
 def get_simple_superpixel_improve(image_path, seg_num=200):
@@ -59,14 +59,14 @@ def get_superPixel(image_path):
 
 
 def main1():
-    check_folder(DATA_TEMP)
+    check_folder(cfg.DATA_TEMP)
 
-    for i, x in tqdm(enumerate(os.listdir(DATA_ANIME))):
+    for i, x in tqdm(enumerate(os.listdir(cfg.DATA_ANIME))):
         print(i, x)
-        path = os.path.join(DATA_ANIME, x)
+        path = os.path.join(cfg.DATA_ANIME, x)
         img = get_superPixel(path)
         # img = get_simple_superpixel_improve(path, 1000)
-        cv2.imwrite(os.path.join(DATA_TEMP, x), cv2.cvtColor(
+        cv2.imwrite(os.path.join(cfg.DATA_TEMP, x), cv2.cvtColor(
             img.astype(np.uint8), cv2.COLOR_RGB2BGR))
         # cv2.imshow('super_seg',cv2.cvtColor(img.astype(np.uint8),cv2.COLOR_RGB2BGR))
         # cv2.waitKey(0)
