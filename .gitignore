@@ -1,3 +1,6 @@
 dataset/
+__pycache__
 
-*npy
+*.npy
+*.zip
+*.7z
