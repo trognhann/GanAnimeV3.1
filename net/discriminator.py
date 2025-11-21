@@ -1,3 +1,4 @@
+import tensorflow.compat.v1 as tf
 from tools.ops import *
 
 def D_net(x_init, sn, ch, scope, reuse):

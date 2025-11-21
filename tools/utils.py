@@ -1,5 +1,4 @@
-import tensorflow as tf
-from tensorflow.contrib import slim
+import tensorflow.compat.v1 as tf
 import os,cv2
 import numpy as np
 from tools.common_utils import *
@@ -7,12 +6,10 @@ from tools.common_utils import *
 
 def show_all_variables():
     model_vars = tf.trainable_variables()
-    # slim.model_analyzer.analyze_vars(model_vars, print_info=True)
     print('G:')
-    slim.model_analyzer.analyze_vars([var for var in tf.trainable_variables() if var.name.startswith('generator') and  'Adam' not in var.name], print_info=True)
-    # slim.model_analyzer.analyze_vars([var for var in tf.trainable_variables() ],print_info=True)
-    # print('D:')
-    # slim.model_analyzer.analyze_vars([var for var in tf.trainable_variables() if var.name.startswith('discriminator')], print_info=True)
+    for var in model_vars:
+        if var.name.startswith('generator') and 'Adam' not in var.name:
+            print(var.name)
 
 
 def _gaussian_kernel(kernel_size, sigma, n_channels, dtype):

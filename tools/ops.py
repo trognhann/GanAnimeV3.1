@@ -1,5 +1,5 @@
-import tensorflow as tf
-import tensorflow.contrib as tf_contrib
+import tensorflow.compat.v1 as tf
+import tensorflow.keras as keras
 from .tf_color_ops import rgb_to_lab
 from .vgg19 import Vgg19
 
@@ -10,8 +10,14 @@ from .vgg19 import Vgg19
 # l2_decay : tf_contrib.layers.l2_regularizer(0.0001)
 
 
-weight_init = tf_contrib.layers.xavier_initializer()
-weight_regularizer = tf_contrib.layers.l2_regularizer(scale=0.0001)
+def l2_regularizer(scale):
+    def regularizer(tensor):
+        return scale * tf.nn.l2_loss(tensor)
+    return regularizer
+
+weight_init = tf.initializers.glorot_uniform()
+tf_weight_regularizer = l2_regularizer(0.0001)
+keras_weight_regularizer = tf.keras.regularizers.l2(0.0001)
 
 
 
@@ -58,19 +64,22 @@ def GroupNorm(x, G=16, eps=1e-5):
 
 
 def instance_norm(x, scope=None):
-    return tf_contrib.layers.instance_norm(x,
-                                           epsilon=1e-05,
-                                           center=True, scale=True,
-                                           scope=scope)
+    with tf.variable_scope(scope or "instance_norm"):
+        epsilon = 1e-5
+        mean, var = tf.nn.moments(x, [1, 2], keep_dims=True)
+        scale = tf.get_variable('scale', [x.get_shape()[-1]],
+                                initializer=tf.truncated_normal_initializer(mean=1.0, stddev=0.02))
+        offset = tf.get_variable('offset', [x.get_shape()[-1]],
+                                 initializer=tf.constant_initializer(0.0))
+        out = scale * tf.div(x - mean, tf.sqrt(var + epsilon)) + offset
+        return out
 
 def layer_norm(x, scope=None) :
-    return tf_contrib.layers.layer_norm(x,
-                                        center=True, scale=True,
-                                        scope=scope)
+    with tf.variable_scope(scope or "layer_norm"):
+        return tf.keras.layers.LayerNormalization(axis=-1, center=True, scale=True)(x)
 
 def batch_norm(x, is_training=True, scope=None):
-    return tf_contrib.layers.batch_norm(x, is_training=is_training, center=True, scale= True,
-                                        updates_collections=tf.GraphKeys.UPDATE_OPS, zero_debias_moving_mean=True, scope=scope)
+    return tf.keras.layers.BatchNormalization(momentum=0.99, epsilon=0.001, center=True, scale=True, name=scope)(x, training=is_training)
 
 
 def batch_norm_wrapper(inputs, is_training, decay = 0.999, epsilon=0.001):
@@ -140,17 +149,17 @@ def conv(x, channels, kernel=4, stride=2, sn=False, pad_type='reflect', use_bias
             x = tf.pad(x, [[0, 0], [pad_top, pad_bottom], [pad_left, pad_right], [0, 0]], mode='REFLECT')
 
         if sn :
-            w = tf.get_variable("kernel", shape=[kernel, kernel, x.get_shape()[-1], channels], initializer=weight_init,regularizer=weight_regularizer)
+            w = tf.get_variable("kernel", shape=[kernel, kernel, x.get_shape()[-1], channels], initializer=weight_init,regularizer=tf_weight_regularizer)
             x = tf.nn.conv2d(input=x, filter=spectral_norm(w),strides=[1, stride, stride, 1], padding='VALID')
             if use_bias :
                 bias = tf.get_variable("bias", [channels], initializer=tf.constant_initializer(0.0))
                 x = tf.nn.bias_add(x, bias)
 
         else :
-            x = tf.layers.conv2d(inputs=x, filters=channels,
+            x = tf.keras.layers.Conv2D(filters=int(channels),
                                  kernel_size=kernel, kernel_initializer=weight_init,
-                                 kernel_regularizer=weight_regularizer,
-                                 strides=stride, use_bias=use_bias)
+                                 kernel_regularizer=keras_weight_regularizer,
+                                 strides=stride, use_bias=use_bias)(x)
         return x
 
 def Conv2D(inputs, filters, kernel_size=3, strides=1, padding='VALID', Use_bias = None, activation_fn=None):
@@ -163,17 +172,15 @@ def Conv2D(inputs, filters, kernel_size=3, strides=1, padding='VALID', Use_bias 
         pad_top, pad_left = kernel_size - strides - pad_bottom,  kernel_size - strides - pad_right
 
     inputs = tf.pad(inputs, [[0, 0], [pad_top, pad_bottom], [pad_left, pad_right], [0, 0]], mode="REFLECT")
-    return tf.contrib.layers.conv2d(
-        inputs,
-        num_outputs=filters,
+    return tf.keras.layers.Conv2D(
+        filters=int(filters),
         kernel_size=kernel_size,
-        stride=strides,
-        weights_initializer=weight_init,
-        weights_regularizer=weight_regularizer,
-        biases_initializer= Use_bias,
-        normalizer_fn=None,
-        activation_fn=activation_fn,
-        padding=padding)
+        strides=strides,
+        kernel_initializer=weight_init,
+        kernel_regularizer=keras_weight_regularizer,
+        bias_initializer= Use_bias,
+        activation=activation_fn,
+        padding=padding.lower())(inputs)
 
 def Conv2d_LN_LReLU(inputs, filters, kernel_size=3, strides=1, name=None, padding='VALID', Use_bias = None):
     x = Conv2D(inputs, filters, kernel_size, strides,padding=padding, Use_bias = Use_bias)
@@ -191,7 +198,7 @@ def Conv2d_IN_LReLU(inputs, filters, kernel_size=3, strides=1, name=None, paddin
 ##################################################################################
 
 def flatten(x) :
-    return tf.layers.flatten(x)
+    return tf.keras.layers.Flatten()(x)
 
 def global_avg_pooling(x, keepdims=True):
     gap = tf.reduce_mean(x, axis=[1, 2], keepdims=keepdims)
@@ -207,7 +214,7 @@ def External_attention_v3(x, is_training, k = 128, scope='External_attention'):
     idn = x
     b, h, w, c=  tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], x.shape[-1]
     with tf.variable_scope(scope):
-        w_kernel = tf.get_variable("kernel", [1, c, k], tf.float32, initializer=weight_init, regularizer=weight_regularizer)
+        w_kernel = tf.get_variable("kernel", [1, c, k], tf.float32, initializer=weight_init, regularizer=tf_weight_regularizer)
         x = Conv2D(x, c, 1, 1,)
         x = tf.reshape(x, shape=[b, -1, c])
         attn = tf.nn.conv1d(x, w_kernel, stride=1, padding='VALID')
@@ -232,14 +239,14 @@ def External_attention(x, is_training, k = 64, scope='External_attention'):
     idn = x
     b, h, w, c=  tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], x.shape[-1]
     with tf.variable_scope(scope):
-        w_kernel = tf.get_variable("mk_kernel", [1, c, k], tf.float32, initializer=weight_init, regularizer=weight_regularizer)
+        w_kernel = tf.get_variable("mk_kernel", [1, c, k], tf.float32, initializer=weight_init, regularizer=tf_weight_regularizer)
         x = Conv2D(x, c, 1, 1,)
         x = tf.reshape(x, shape=[b, -1, c])
         attn = tf.nn.conv1d(x, w_kernel, 1, 'VALID')
         attn = tf.nn.softmax(attn, axis=1)
         attn = attn / (1e-9 + tf.reduce_sum(attn, axis=2, keepdims=True))
 
-        w_kernel = tf.get_variable("mv_kernel", [1, k, c], tf.float32, initializer=weight_init, regularizer=weight_regularizer)
+        w_kernel = tf.get_variable("mv_kernel", [1, k, c], tf.float32, initializer=weight_init, regularizer=tf_weight_regularizer)
         x = tf.nn.conv1d(attn, w_kernel, 1, 'VALID')
         x = tf.reshape(x, [b, h, w, c])
         x = Conv2D(x, c, 1, 1)
@@ -352,7 +359,7 @@ vgg19 obj
 try:
     vgg19 = Vgg19('./vgg19_weight/vgg19_no_fc.npy')
 except:
-    vgg19 = Vgg19('../vgg19_weight/vgg19_no_fc.npy')
+    vgg19 = Vgg19('vgg19_weight/vgg19_no_fc.npy')
 
 def VGG_LOSS(x, y):
     # The number of feature channels in layer 4-4 of vgg19 is 512
