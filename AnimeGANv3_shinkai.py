@@ -3,6 +3,7 @@ from tools.ops import *
 from tools.utils import *
 from glob import glob
 import time
+import logging
 import numpy as np
 from joblib import Parallel, delayed
 from skimage import segmentation, color
@@ -39,6 +40,9 @@ class AnimeGANv3(object) :
 
         self.sample_dir = os.path.join(args.sample_dir, self.model_dir)
         check_folder(self.sample_dir)
+        check_folder(self.log_dir)
+        logging.basicConfig(filename=os.path.join(self.log_dir, 'training.log'), level=logging.INFO, format='%(asctime)s - %(message)s')
+        self.logger = logging.getLogger()
         self.val_real = tf.placeholder(tf.float32, [1, None, None, self.img_ch], name='val_input')
 
         self.real_photo = tf.placeholder(tf.float32, [self.batch_size, self.img_size[0], self.img_size[1], self.img_ch], name='real_photo')
@@ -65,6 +69,14 @@ class AnimeGANv3(object) :
         print("# training image size [H, W] : ", self.img_size)
         print("# init_G_lr,g_lr,d_lr : ", self.init_G_lr,self.g_lr,self.d_lr)
         print()
+        self.logger.info(f"##### Information #####")
+        self.logger.info(f"# dataset : {self.dataset_name}")
+        self.logger.info(f"# max dataset number : {self.dataset_num}")
+        self.logger.info(f"# batch_size : {self.batch_size}")
+        self.logger.info(f"# epoch : {self.epoch}")
+        self.logger.info(f"# init_G_epoch : {self.init_G_epoch}")
+        self.logger.info(f"# training image size [H, W] : {self.img_size}")
+        self.logger.info(f"# init_G_lr,g_lr,d_lr : {self.init_G_lr},{self.g_lr},{self.d_lr}")
 
     def generator(self, x_init, is_training, reuse=False, scope="generator"):
 
@@ -210,6 +222,8 @@ class AnimeGANv3(object) :
                     step_time = time.time() - start_time
                     print("Epoch: %3d, Step: %5d / %5d, time: %.3fs, ETA: %.2fs, Pre_train_G_loss: %.6f" % (
                            epoch, idx, steps, step_time, step_time*(steps-idx+1), init_loss))
+                    self.logger.info("Epoch: %3d, Step: %5d / %5d, time: %.3fs, ETA: %.2fs, Pre_train_G_loss: %.6f" % (
+                           epoch, idx, steps, step_time, step_time*(steps-idx+1), init_loss))
 
                     """style transfer"""
                 else:
@@ -258,6 +272,7 @@ class AnimeGANv3(object) :
                            f'G_support_loss: {G_support_loss:.6f}, g_s_loss: {g_adv_loss:.6f}, con_loss: {con_loss:.6f}, rs_loss: {rs_loss:.6f}, sty_loss: {sty_loss:.6f}, s22: {s22:.6f}, s33: {s33:.6f}, s44: {s44:.6f}, color_loss: {color_loss:.6f}, tv_loss: {tv_loss:.6f} ~ D_support_loss: {D_support_loss:.6f} || ' + \
                            f'G_main_loss: {G_main_loss:.6f}, g_m_loss: {g_m_loss:.6f}, p0_loss: {p0_loss:.6f}, p4_loss: {p4_loss:.6f}, tv_loss_m: {tv_loss_m:.6f} ~ D_main_loss: {D_main_loss:.6f}'
                     print(info)
+                    self.logger.info(info)
              # 2---------------------------------------------------------------------------------
 
             if (epoch + 1) >= self.init_G_epoch and np.mod(epoch + 1, self.save_freq) == 0:
