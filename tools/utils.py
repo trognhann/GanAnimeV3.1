@@ -1,15 +1,76 @@
 import tensorflow.compat.v1 as tf
-import os,cv2
+import os
+import cv2
 import numpy as np
-from tools.common_utils import *
+
+
+def img_resize(img, limit=1280):
+    h, w = img.shape[:2]
+    max_edge = max(h, w)
+    if max_edge > limit:
+        scale_factor = limit / max_edge
+        height = int(round(h * scale_factor))
+        width = int(round(w * scale_factor))
+        img = cv2.resize(img, (width, height), interpolation=cv2.INTER_LINEAR)
+    return img
+
+
+def load_test_data(image_path, x8=True):
+    img = cv2.imread(image_path)  # .astype(np.float32)
+    img = img_resize(img).astype(np.float32)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = preprocessing(img, x8)
+    img = np.expand_dims(img, axis=0)
+    return img
+
+
+def preprocessing(img, x8=True):
+    h, w = img.shape[:2]
+    if x8:  # resize image to multiple of 8s
+        def to_8s(x):
+            return 256 if x < 256 else x - x % 8  # if using tiny model: x - x%16
+        img = cv2.resize(img, (to_8s(w), to_8s(h)))
+    return img/127.5 - 1.0
+
+
+def save_images(images, image_path):
+    fake = inverse_transform(images.squeeze())
+    return imsave(fake, image_path)
+
+
+def inverse_transform(images):
+    images = (images + 1.) / 2 * 255
+    # The calculation of floating-point numbers is inaccurate,
+    # and the range of pixel values must be limited to the boundary,
+    # otherwise, image distortion or artifacts will appear during display.
+    images = np.clip(images, 0, 255)
+    return images.astype(np.uint8)
+
+
+def imsave(images, path):
+    return cv2.imwrite(path, cv2.cvtColor(images, cv2.COLOR_BGR2RGB))
 
 
 def show_all_variables():
     model_vars = tf.trainable_variables()
     print('G:')
-    for var in model_vars:
-        if var.name.startswith('generator') and 'Adam' not in var.name:
-            print(var.name)
+    g_vars = [var for var in tf.trainable_variables() if var.name.startswith(
+        'generator') and 'Adam' not in var.name]
+    for var in g_vars:
+        print(f"name: {var.name}, shape: {var.shape}")
+
+    total_params = np.sum([np.prod(v.get_shape().as_list()) for v in g_vars])
+    print(f"Total Generator Params: {total_params}")
+
+
+def check_folder(log_dir):
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    return log_dir
+
+
+def str2bool(x):
+    return x.lower() in ('true')
 
 
 def _gaussian_kernel(kernel_size, sigma, n_channels, dtype):
@@ -27,7 +88,8 @@ def _gaussian_kernel(kernel_size, sigma, n_channels, dtype):
     g_kernel = tf.expand_dims(g_kernel, axis=-1)
     return tf.expand_dims(tf.tile(g_kernel, (1, 1, n_channels)), axis=-1)
 
-def gaussian_blur(img, kernel_size=7, sigma=5., ch = 3):
+
+def gaussian_blur(img, kernel_size=7, sigma=5., ch=3):
     """Convolves a gaussian kernel with input image
     Convolution is performed depthwise
     Args:
@@ -40,6 +102,7 @@ def gaussian_blur(img, kernel_size=7, sigma=5., ch = 3):
     img = tf.nn.depthwise_conv2d(img, blur, [1, 1, 1, 1], 'SAME')
     return img
 
+
 if __name__ == "__main__":
     path = '../dataset/val/1.jpg'
     image_foder = '../dataset/Hayao/style/11.jpg'
@@ -50,6 +113,6 @@ if __name__ == "__main__":
         S = sess.run(a)
     S = np.squeeze(S)
     # S=S.clip(0,1)
-    print(type(S[0,0,0]),S.max(),S.min())
-    cv2.imshow('a',S.astype(np.uint8))
+    print(type(S[0, 0, 0]), S.max(), S.min())
+    cv2.imshow('a', S.astype(np.uint8))
     cv2.waitKey(0)

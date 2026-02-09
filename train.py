@@ -5,10 +5,7 @@ import argparse
 from AnimeGANv3_shinkai import AnimeGANv3
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
-if not tf.test.is_gpu_available():
-    raise RuntimeError("GPU not found! Please check your GPU installation.")
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 """parsing and configuration"""
 

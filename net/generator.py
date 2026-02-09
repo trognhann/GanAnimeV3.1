@@ -1,5 +1,5 @@
 import tensorflow.compat.v1 as tf
-from tools.ops import conv_LADE_Lrelu, External_attention_v3,Conv2D
+from tools.ops import conv_LADE_Lrelu, External_attention_v3, Conv2D
 
 
 def G_net(inputs, is_training):
@@ -18,15 +18,18 @@ def G_net(inputs, is_training):
 
     with tf.variable_scope("support"):
         s_x3 = External_attention_v3(x3, is_training)
-        s_x4 = tf.image.resize_images(s_x3, [2 * tf.shape(s_x3)[1], 2 * tf.shape(s_x3)[2]])    # 64
+        s_x4 = tf.image.resize_images(
+            s_x3, [2 * tf.shape(s_x3)[1], 2 * tf.shape(s_x3)[2]])    # 64
         s_x4 = conv_LADE_Lrelu(s_x4, 128)
         s_x4 = conv_LADE_Lrelu(s_x4 + x2, 128)
 
-        s_x5 = tf.image.resize_images(s_x4, [2 * tf.shape(s_x4)[1], 2 * tf.shape(s_x4)[2]])    # 128
+        s_x5 = tf.image.resize_images(
+            s_x4, [2 * tf.shape(s_x4)[1], 2 * tf.shape(s_x4)[2]])    # 128
         s_x5 = conv_LADE_Lrelu(s_x5, 64)
         s_x5 = conv_LADE_Lrelu(s_x5 + x1, 64)
 
-        s_x6 = tf.image.resize_images(s_x5, [2 * tf.shape(s_x5)[1], 2 * tf.shape(s_x5)[2]])  # 256
+        s_x6 = tf.image.resize_images(
+            s_x5, [2 * tf.shape(s_x5)[1], 2 * tf.shape(s_x5)[2]])  # 256
         s_x6 = conv_LADE_Lrelu(s_x6, 32)
         s_x6 = conv_LADE_Lrelu(s_x6 + x0, 32)
 
@@ -35,15 +38,18 @@ def G_net(inputs, is_training):
 
     with tf.variable_scope("main"):
         m_x3 = External_attention_v3(x3, is_training)
-        m_x4 = tf.image.resize_images(m_x3, [2 * tf.shape(m_x3)[1], 2 * tf.shape(m_x3)[2]])  # 64
+        m_x4 = tf.image.resize_images(
+            m_x3, [2 * tf.shape(m_x3)[1], 2 * tf.shape(m_x3)[2]])  # 64
         m_x4 = conv_LADE_Lrelu(m_x4, 128)
         m_x4 = conv_LADE_Lrelu(m_x4 + x2, 128)
 
-        m_x5 = tf.image.resize_images(m_x4, [2 * tf.shape(m_x4)[1], 2 * tf.shape(m_x4)[2]])  # 128
+        m_x5 = tf.image.resize_images(
+            m_x4, [2 * tf.shape(m_x4)[1], 2 * tf.shape(m_x4)[2]])  # 128
         m_x5 = conv_LADE_Lrelu(m_x5, 64)
         m_x5 = conv_LADE_Lrelu(m_x5 + x1, 64)
 
-        m_x6 = tf.image.resize_images(m_x5, [2 * tf.shape(m_x5)[1], 2 * tf.shape(m_x5)[2]])  # 256
+        m_x6 = tf.image.resize_images(
+            m_x5, [2 * tf.shape(m_x5)[1], 2 * tf.shape(m_x5)[2]])  # 256
         m_x6 = conv_LADE_Lrelu(m_x6, 32)
         m_x6 = conv_LADE_Lrelu(m_x6 + x0, 32)
 

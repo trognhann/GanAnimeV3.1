@@ -1,17 +1,23 @@
 # The edge_smooth.py is from taki0112/CartoonGAN-Tensorflow https://github.com/taki0112/CartoonGAN-Tensorflow#2-do-edge_smooth
-from common_utils import check_folder
+from tools.utils import check_folder
 import numpy as np
-import cv2, os, argparse
+import cv2
+import os
+import argparse
 from glob import glob
 from tqdm import tqdm
+
 
 def parse_args():
     desc = "Edge smoothed"
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument('--dataset', type=str, default='Hayao', help='dataset_name')
-    parser.add_argument('--img_size', type=int, default=256, help='The size of image')
+    parser.add_argument('--dataset', type=str,
+                        default='Hayao', help='dataset_name')
+    parser.add_argument('--img_size', type=int,
+                        default=256, help='The size of image')
 
     return parser.parse_args()
+
 
 def guass_init(kernel_size=5):
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
@@ -19,7 +25,8 @@ def guass_init(kernel_size=5):
     gauss = gauss * gauss.transpose(1, 0)
     return kernel_size, kernel, gauss
 
-def make_edge_smooth(bgr_img, gray_img, img_size, kernel_size, kernel, gauss) :
+
+def make_edge_smooth(bgr_img, gray_img, img_size, kernel_size, kernel, gauss):
 
     bgr_img = cv2.resize(bgr_img, (img_size, img_size))
     pad_img = np.pad(bgr_img, ((2, 2), (2, 2), (0, 0)), mode='reflect')
@@ -40,7 +47,10 @@ def make_edge_smooth(bgr_img, gray_img, img_size, kernel_size, kernel, gauss) :
 
     return gauss_img
 
+
 """main"""
+
+
 def main():
     # parse arguments
     args = parse_args()
@@ -48,16 +58,22 @@ def main():
     kernel_size, kernel, gauss = guass_init()
 
     dataset_name = args.dataset
-    check_folder(os.path.dirname(os.path.dirname(__file__)) + '/dataset/{}/{}'.format(dataset_name, 'smooth'))
-    file_list = glob(os.path.dirname(os.path.dirname(__file__)) + '/dataset/{}/{}/*.*'.format(dataset_name, 'style'))
-    save_dir = os.path.dirname(os.path.dirname(__file__)) + '/dataset/{}/smooth'.format(dataset_name)
+    check_folder(os.path.dirname(os.path.dirname(__file__)) +
+                 '/dataset/{}/{}'.format(dataset_name, 'smooth'))
+    file_list = glob(os.path.dirname(os.path.dirname(__file__)) +
+                     '/dataset/{}/{}/*.*'.format(dataset_name, 'style'))
+    save_dir = os.path.dirname(os.path.dirname(
+        __file__)) + '/dataset/{}/smooth'.format(dataset_name)
 
     for f in tqdm(file_list):
         file_name = os.path.basename(f)
 
         bgr_img = cv2.imread(f)
+        if bgr_img is None:
+            continue
         gray_img = cv2.imread(f, 0)
-        gauss_img = make_edge_smooth(bgr_img, gray_img, args.img_size, kernel_size, kernel, gauss)
+        gauss_img = make_edge_smooth(
+            bgr_img, gray_img, args.img_size, kernel_size, kernel, gauss)
         cv2.imwrite(os.path.join(save_dir, file_name), gauss_img)
 
 
