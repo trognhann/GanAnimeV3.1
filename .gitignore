@@ -1,1 +1,7 @@
 dataset/
+__pycache__
+
+*.npy
+*.zip
+*.7z
+checkpoint/
