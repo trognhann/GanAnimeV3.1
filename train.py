@@ -1,5 +1,6 @@
 import time
 import os
+import sys
 from tools.utils import *
 import argparse
 from AnimeGANv3_shinkai import AnimeGANv3
@@ -8,6 +9,38 @@ tf.disable_v2_behavior()
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 """parsing and configuration"""
+
+
+class Logger(object):
+    def __init__(self, fpath=None):
+        self.console = sys.stdout
+        self.file = None
+        if fpath is not None:
+            self.file = open(fpath, 'w')
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, *args):
+        self.close()
+
+    def write(self, msg):
+        self.console.write(msg)
+        if self.file is not None:
+            self.file.write(msg)
+
+    def flush(self):
+        self.console.flush()
+        if self.file is not None:
+            self.file.flush()
+            os.fsync(self.file.fileno())
+
+    def close(self):
+        if self.file is not None:
+            self.file.close()
 
 
 def parse_args():
@@ -47,6 +80,8 @@ def parse_args():
                         help='Directory name to save the checkpoints')
     parser.add_argument('--log_dir', type=str, default='logs',
                         help='Directory name to save training logs')
+    parser.add_argument('--log_file', type=str, default='log.log',
+                        help='File name to save training logs')
     parser.add_argument('--sample_dir', type=str, default='samples',
                         help='Directory name to save the samples on training')
 
@@ -88,6 +123,11 @@ def train():
     args = parse_args()
     if args is None:
         exit()
+
+    # set up logging
+    if args.log_file is not None:
+        sys.stdout = Logger(os.path.join(args.log_dir, args.log_file))
+
     if len(args.img_size) == 1:
         args.img_size = [args.img_size, args.img_size]
 
